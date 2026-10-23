@@ -230,33 +230,82 @@ def clustering_analisis(df, output_dir):
     return df_clusterizado
 
 
-def buscar_track_referencia(df_vec, query):
+def buscar_candidatos(df_vec, query, limite=5):
     """
-    Busca una cancion de referencia:
-    1. Si no hay query, retorna el primer registro disponible.
-    2. Por ID exacto de Spotify.
-    3. Por nombre de la cancion (insensible a mayusculas/minusculas).
-    4. Por nombre de artista (insensible a mayusculas/minusculas).
+    Busca hasta `limite` canciones candidatas:
+    1. Por ID exacto de Spotify.
+    2. Por coincidencia en artistas (ej. 'Queen').
+    3. Por titulo de cancion.
     """
-    if not query:
-        return df_vec.first()
+    q = query.strip().lower()
 
     # 1. Busqueda por ID exacto
-    match = df_vec.filter(F.col("id") == query).first()
-    if match:
-        return match
+    match_id = df_vec.filter(F.col("id") == query).limit(1).collect()
+    if match_id:
+        return match_id
 
-    # 2. Busqueda por titulo de cancion
-    match = df_vec.filter(F.lower(F.col("name")).contains(query.lower())).first()
-    if match:
-        return match
+    # 2. Busqueda por coincidencia en artistas (si el query coincide con un artista)
+    match_artista = df_vec.filter(F.lower(F.col("artists")).contains(q)).limit(limite).collect()
+    if match_artista:
+        match_nombre_exacto = df_vec.filter(F.lower(F.col("name")) == q).limit(limite).collect()
+        if match_nombre_exacto:
+            return match_nombre_exacto
+        return match_artista
 
-    # 3. Busqueda por artista
-    match = df_vec.filter(F.lower(F.col("artists")).contains(query.lower())).first()
-    if match:
-        return match
+    # 3. Busqueda por titulo de cancion (contiene texto)
+    match_nombre = df_vec.filter(F.lower(F.col("name")).contains(q)).limit(limite).collect()
+    if match_nombre:
+        return match_nombre
 
-    return None
+    return []
+
+
+def hay_terminal():
+    """Detecta si hay una terminal de control (consola interactiva) disponible."""
+    try:
+        with open("/dev/tty", "r"):
+            return True
+    except Exception:
+        return sys.stdin.isatty()
+
+
+def leer_terminal(prompt=""):
+    """
+    Lee entrada del usuario directamente desde /dev/tty para evitar que
+    Spark/Java intercepte o cierre el flujo de stdin.
+    """
+    try:
+        with open("/dev/tty", "r") as tty_in, open("/dev/tty", "w") as tty_out:
+            tty_out.write(prompt)
+            tty_out.flush()
+            line = tty_in.readline()
+            return line.strip() if line else ""
+    except Exception:
+        try:
+            return input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
+
+def seleccionar_track(candidatos, es_interactivo=True):
+    """
+    Permite seleccionar una cancion si hay multiples coincidencias.
+    En modo interactivo muestra un menu de opciones (1 a N).
+    """
+    if not candidatos:
+        return None
+    if len(candidatos) == 1 or not es_interactivo:
+        return candidatos[0]
+
+    print("\nSe encontraron varias canciones:")
+    for idx, c in enumerate(candidatos, 1):
+        print(f"  [{idx}] '{c['name']}' - {c['artists']} ({c['release_year']}) [Album: {c['album']}]")
+
+    eleccion = leer_terminal(f"Elige una cancion (1-{len(candidatos)}) [por defecto 1]: ")
+    if eleccion.isdigit() and 1 <= int(eleccion) <= len(candidatos):
+        return candidatos[int(eleccion) - 1]
+
+    return candidatos[0]
 
 
 def calcular_similitud(df_vec, ref, metrica="coseno", top_k=5):
@@ -286,6 +335,35 @@ def calcular_similitud(df_vec, ref, metrica="coseno", top_k=5):
     return top
 
 
+def ejecutar_consulta_similitud(df_vec, ref):
+    print(f"\nCancion de referencia: '{ref['name']}' - {ref['artists']} (Decada {ref['decade']}, Cluster {ref['cluster_implicito']})")
+    print("\nTop 5 similares por Coseno:")
+    calcular_similitud(df_vec, ref, metrica="coseno", top_k=5)
+    print("\nTop 5 similares por Distancia Euclidiana:")
+    calcular_similitud(df_vec, ref, metrica="euclidiana", top_k=5)
+
+
+def modo_interactivo(df_vec):
+    print("\n" + "=" * 60)
+    print("MOTOR INTERACTIVO DE SIMILITUD ACUSTICA")
+    print("Ingresa el nombre de una cancion o artista (o escribe 'salir' para terminar):")
+    print("=" * 60)
+
+    while True:
+        query = leer_terminal("\nBuscar cancion o artista > ")
+        if not query or query.lower() in ["salir", "exit", "quit", "q"]:
+            print("Finalizando sesion interactiva.")
+            break
+
+        candidatos = buscar_candidatos(df_vec, query)
+        if not candidatos:
+            print(f"[!] No se encontro ninguna cancion para: '{query}'")
+            continue
+
+        ref = seleccionar_track(candidatos, es_interactivo=True)
+        ejecutar_consulta_similitud(df_vec, ref)
+
+
 def main():
     if len(sys.argv) < 3:
         input_path = "spotify-sample-1k.csv"
@@ -294,11 +372,15 @@ def main():
         input_path = sys.argv[1]
         output_dir = sys.argv[2]
 
+    # Si se pasa 'none', '-' o 'false', se desactiva la exportacion de archivos
+    if output_dir and output_dir.lower() in ["none", "null", "no", "false", "-"]:
+        output_dir = None
+
     # Nombre de cancion, artista o ID opcional por argumento 3
     target_query = sys.argv[3] if len(sys.argv) > 3 else None
 
     print(f"Procesando: {input_path}")
-    print(f"Directorio de salida: {output_dir}")
+    print(f"Directorio de salida: {output_dir if output_dir else '(Deshabilitado: no se generaran archivos)'}")
 
     spark = get_spark_session()
     try:
@@ -316,17 +398,19 @@ def main():
         norma2 = reduce(lambda a, b: a + b, [F.col(z) ** 2 for z in Z_COLS])
         df_vec = df_clusterizado.withColumn("_norma", F.sqrt(norma2)).cache()
 
-        ref = buscar_track_referencia(df_vec, target_query)
-        if not ref:
-            print(f"[!] No se encontro ninguna cancion que coincida con: '{target_query}'")
+        if target_query:
+            candidatos = buscar_candidatos(df_vec, target_query)
+            if not candidatos:
+                print(f"[!] No se encontro ninguna cancion que coincida con: '{target_query}'")
+            else:
+                ref = seleccionar_track(candidatos, es_interactivo=hay_terminal())
+                ejecutar_consulta_similitud(df_vec, ref)
+        elif hay_terminal():
+            modo_interactivo(df_vec)
         else:
-            print(f"\nCancion de referencia: '{ref['name']}' - {ref['artists']} (Decada {ref['decade']}, Cluster {ref['cluster_implicito']})")
-
-            print("\nTop similares por Coseno:")
-            calcular_similitud(df_vec, ref, metrica="coseno", top_k=5)
-
-            print("\nTop similares por Distancia Euclidiana:")
-            calcular_similitud(df_vec, ref, metrica="euclidiana", top_k=5)
+            # En ejecucion no interactiva sin argumentos, toma la primera por defecto
+            ref = df_vec.first()
+            ejecutar_consulta_similitud(df_vec, ref)
 
     finally:
         spark.stop()

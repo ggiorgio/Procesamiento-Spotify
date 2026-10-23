@@ -141,19 +141,30 @@ cat salida_spotify_full/perfil_clusters/part-*.csv
 cat salida_spotify_full/evolucion_clusters/part-*.csv
 ```
 
-### Paso 7: Consulta personalizada de similitud por Canción o Artista
-El script permite ingresar opcionalmente el nombre de una canción, artista o ID en el tercer argumento para buscar sus K canciones acústicamente más cercanas:
+### Paso 7: Motor Interactivo y Búsqueda de Similitud
+El módulo de similitud acústica ofrece dos modalidades de búsqueda:
 
-```bash
-# Busqueda por nombre de cancion (ej. Bohemian Rhapsody)
-spark-submit --master spark://cluster-01:7077 script_spotify.py \
-  /uhadoop2026/verde/spotify/tracks_features.csv \
-  /uhadoop2026/verde/salida_spotify_full/ \
-  "Bohemian Rhapsody"
+1. **Modo interactivo continuo (por consola):**
+   Si se ejecuta el script sin un tercer argumento en una terminal interactiva, al finalizar el clustering el programa inicia una consola interactiva en tiempo real con los datos ya cacheados en memoria:
+   ```bash
+   spark-submit --master spark://cluster-01:7077 script_spotify.py \
+     /uhadoop2026/verde/spotify/tracks_features.csv \
+     /uhadoop2026/verde/salida_spotify_full/
+   ```
+   Permite escribir temas o artistas sucesivamente. Si la búsqueda arroja varias canciones (por ejemplo al buscar un artista como `Queen`), el sistema despliega un menú numerado para elegir la canción deseada. Para terminar la sesión basta con escribir `salir`.
 
-# O busqueda por artista
-spark-submit --master spark://cluster-01:7077 script_spotify.py \
-  /uhadoop2026/verde/spotify/tracks_features.csv \
-  /uhadoop2026/verde/salida_spotify_full/ \
-  "Queen"
-```
+2. **Modo por argumento directo:**
+   Permite pasar la búsqueda directamente en el tercer argumento:
+   ```bash
+   # Busqueda por cancion
+   spark-submit --master spark://cluster-01:7077 script_spotify.py \
+     /uhadoop2026/verde/spotify/tracks_features.csv \
+     /uhadoop2026/verde/salida_spotify_full/ \
+     "Bohemian Rhapsody"
+
+   # O busqueda por artista
+   spark-submit --master spark://cluster-01:7077 script_spotify.py \
+     /uhadoop2026/verde/spotify/tracks_features.csv \
+     /uhadoop2026/verde/salida_spotify_full/ \
+     "Queen"
+   ```
