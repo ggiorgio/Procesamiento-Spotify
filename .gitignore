@@ -1,0 +1,36 @@
+# Raw datasets (data lives in HDFS, never in Git)
+*.csv
+*.tsv
+*.zip
+*.tar.gz
+*.gz
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Spark / Hadoop execution logs
+*.log
+metastore_db/
+derby.log
+spark-warehouse/
+.checkpoint/
+
+# Credentials
+*credenciales*
+*password*
+*secret*
