@@ -141,11 +141,19 @@ cat salida_spotify_full/perfil_clusters/part-*.csv
 cat salida_spotify_full/evolucion_clusters/part-*.csv
 ```
 
-### Paso 7: Consulta personalizada de similitud para un Track específico
-El script permite ingresar opcionalmente el `id` de cualquier canción en el tercer argumento para buscar sus K canciones más cercanas:
+### Paso 7: Consulta personalizada de similitud por Canción o Artista
+El script permite ingresar opcionalmente el nombre de una canción, artista o ID en el tercer argumento para buscar sus K canciones acústicamente más cercanas:
+
 ```bash
+# Busqueda por nombre de cancion (ej. Bohemian Rhapsody)
 spark-submit --master spark://cluster-01:7077 script_spotify.py \
   /uhadoop2026/verde/spotify/tracks_features.csv \
   /uhadoop2026/verde/salida_spotify_full/ \
-  4cOdK2wGLETKBW3PvgPWqT
+  "Bohemian Rhapsody"
+
+# O busqueda por artista
+spark-submit --master spark://cluster-01:7077 script_spotify.py \
+  /uhadoop2026/verde/spotify/tracks_features.csv \
+  /uhadoop2026/verde/salida_spotify_full/ \
+  "Queen"
 ```

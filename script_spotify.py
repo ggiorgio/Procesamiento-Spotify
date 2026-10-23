@@ -230,17 +230,37 @@ def clustering_analisis(df, output_dir):
     return df_clusterizado
 
 
-def calcular_similitud(df_cl, track_id, metrica="coseno", top_k=5):
-    # Calcular norma euclidiana del vector para producto punto
-    norma2 = reduce(lambda a, b: a + b, [F.col(z) ** 2 for z in Z_COLS])
-    df_vec = df_cl.withColumn("_norma", F.sqrt(norma2))
+def buscar_track_referencia(df_vec, query):
+    """
+    Busca una cancion de referencia:
+    1. Si no hay query, retorna el primer registro disponible.
+    2. Por ID exacto de Spotify.
+    3. Por nombre de la cancion (insensible a mayusculas/minusculas).
+    4. Por nombre de artista (insensible a mayusculas/minusculas).
+    """
+    if not query:
+        return df_vec.first()
 
-    ref = df_vec.filter(F.col("id") == track_id).first()
-    if not ref:
-        print(f"[!] No se encontro el track_id: {track_id}")
-        return None
+    # 1. Busqueda por ID exacto
+    match = df_vec.filter(F.col("id") == query).first()
+    if match:
+        return match
 
-    print(f"\nTrack de referencia: '{ref['name']}' - {ref['artists']} (Decada {ref['decade']}, Cluster {ref['cluster_implicito']})")
+    # 2. Busqueda por titulo de cancion
+    match = df_vec.filter(F.lower(F.col("name")).contains(query.lower())).first()
+    if match:
+        return match
+
+    # 3. Busqueda por artista
+    match = df_vec.filter(F.lower(F.col("artists")).contains(query.lower())).first()
+    if match:
+        return match
+
+    return None
+
+
+def calcular_similitud(df_vec, ref, metrica="coseno", top_k=5):
+    track_id = ref["id"]
     candidatos = df_vec.filter(F.col("id") != track_id)
 
     if metrica == "coseno":
@@ -274,8 +294,8 @@ def main():
         input_path = sys.argv[1]
         output_dir = sys.argv[2]
 
-    # ID de cancion opcional por argumento 3
-    target_song_id = sys.argv[3] if len(sys.argv) > 3 else None
+    # Nombre de cancion, artista o ID opcional por argumento 3
+    target_query = sys.argv[3] if len(sys.argv) > 3 else None
 
     print(f"Procesando: {input_path}")
     print(f"Directorio de salida: {output_dir}")
@@ -293,15 +313,20 @@ def main():
 
         # 3. Motor de similitud
         print("\n>>> Motor de similitud acustica")
-        if not target_song_id:
-            # Tomamos el primer registro disponible como ejemplo
-            target_song_id = df.select("id").first()["id"]
+        norma2 = reduce(lambda a, b: a + b, [F.col(z) ** 2 for z in Z_COLS])
+        df_vec = df_clusterizado.withColumn("_norma", F.sqrt(norma2)).cache()
 
-        print("\nTop similares por Coseno:")
-        calcular_similitud(df_clusterizado, target_song_id, metrica="coseno", top_k=5)
+        ref = buscar_track_referencia(df_vec, target_query)
+        if not ref:
+            print(f"[!] No se encontro ninguna cancion que coincida con: '{target_query}'")
+        else:
+            print(f"\nCancion de referencia: '{ref['name']}' - {ref['artists']} (Decada {ref['decade']}, Cluster {ref['cluster_implicito']})")
 
-        print("\nTop similares por Distancia Euclidiana:")
-        calcular_similitud(df_clusterizado, target_song_id, metrica="euclidiana", top_k=5)
+            print("\nTop similares por Coseno:")
+            calcular_similitud(df_vec, ref, metrica="coseno", top_k=5)
+
+            print("\nTop similares por Distancia Euclidiana:")
+            calcular_similitud(df_vec, ref, metrica="euclidiana", top_k=5)
 
     finally:
         spark.stop()
